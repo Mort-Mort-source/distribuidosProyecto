@@ -5,13 +5,11 @@
 #include <thread>
 #include <mutex>
 #include <map>
-#include <set>
 #include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <netdb.h>
 
 #define BROKER_PORT 65440
 #define BUFFER_SIZE 8192
@@ -19,29 +17,42 @@
 struct PeerInfo {
     std::string ip;
     int puerto;
-    int socket_fd;  // socket para comunicación con el broker
+    int socket_fd;
 };
 
 std::map<std::string, PeerInfo> peers;  // key: "ip:puerto"
 std::mutex mutex_peers;
 
-// ------------------- Notificar a todos los peers -------------------
-void notificar_peers(const std::string& comando, const std::string& ip, int puerto) {
+// ------------------- Enviar lista completa a todos los peers -------------------
+void broadcast_peers_list() {
     std::lock_guard<std::mutex> lock(mutex_peers);
-    std::string msg = comando + " " + ip + " " + std::to_string(puerto) + "\n";
+    std::string lista = "PEERS_LIST";
+    for (const auto& par : peers) {
+        lista += " " + par.second.ip + ":" + std::to_string(par.second.puerto);
+    }
+    lista += "\n";
+    
+    std::vector<std::string> to_remove;
     for (auto& par : peers) {
-        if (par.second.socket_fd != -1) {
-            send(par.second.socket_fd, msg.c_str(), msg.size(), 0);
+        int fd = par.second.socket_fd;
+        if (fd != -1) {
+            int sent = send(fd, lista.c_str(), lista.size(), MSG_NOSIGNAL);
+            if (sent < 0) {
+                to_remove.push_back(par.first);  // marcar para eliminar
+            }
         }
+    }
+    // Eliminar peers con socket roto
+    for (const auto& key : to_remove) {
+        peers.erase(key);
+        std::cout << "[Broker] Peer eliminado por socket roto: " << key << std::endl;
     }
 }
 
 // ------------------- Atender un peer -------------------
 void atender_peer(int peer_fd) {
     char buffer[BUFFER_SIZE];
-    std::string peer_ip;
-    int peer_puerto;
-    bool registrado = false;
+    std::string peer_key;
 
     while (true) {
         memset(buffer, 0, BUFFER_SIZE);
@@ -62,45 +73,29 @@ void atender_peer(int peer_fd) {
                 continue;
             }
 
-            std::string key = ip + ":" + std::to_string(puerto);
+            peer_key = ip + ":" + std::to_string(puerto);
             {
                 std::lock_guard<std::mutex> lock(mutex_peers);
                 // Si ya existe, actualizar socket
-                auto it = peers.find(key);
+                auto it = peers.find(peer_key);
                 if (it != peers.end()) {
                     close(it->second.socket_fd);
                 }
-                peers[key] = {ip, puerto, peer_fd};
+                peers[peer_key] = {ip, puerto, peer_fd};
             }
-            peer_ip = ip;
-            peer_puerto = puerto;
-            registrado = true;
-
-            // Enviar lista actual de peers al nuevo peer
-            std::string lista = "PEERS_LIST\n";
-            {
-                std::lock_guard<std::mutex> lock(mutex_peers);
-                for (const auto& par : peers) {
-                    if (par.first != key) {
-                        lista += par.second.ip + " " + std::to_string(par.second.puerto) + "\n";
-                    }
-                }
-            }
-            send(peer_fd, lista.c_str(), lista.size(), 0);
-
-            // Notificar a todos los demás que un nuevo peer se unió
-            notificar_peers("PEER_JOINED", ip, puerto);
             std::cout << "[Broker] Peer registrado: " << ip << ":" << puerto << std::endl;
 
+            // Enviar lista completa a TODOS los peers
+            broadcast_peers_list();
+
         } else if (comando == "GET_PEERS") {
-            // Devolver lista actual de peers
-            std::string lista = "PEERS_LIST\n";
-            {
-                std::lock_guard<std::mutex> lock(mutex_peers);
-                for (const auto& par : peers) {
-                    lista += par.second.ip + " " + std::to_string(par.second.puerto) + "\n";
-                }
+            // Devolver lista completa al peer que la solicita
+            std::lock_guard<std::mutex> lock(mutex_peers);
+            std::string lista = "PEERS_LIST";
+            for (const auto& par : peers) {
+                lista += " " + par.second.ip + ":" + std::to_string(par.second.puerto);
             }
+            lista += "\n";
             send(peer_fd, lista.c_str(), lista.size(), 0);
 
         } else {
@@ -109,14 +104,14 @@ void atender_peer(int peer_fd) {
     }
 
     // Peer desconectado
-    if (registrado) {
-        std::string key = peer_ip + ":" + std::to_string(peer_puerto);
+    if (!peer_key.empty()) {
         {
             std::lock_guard<std::mutex> lock(mutex_peers);
-            peers.erase(key);
+            peers.erase(peer_key);
         }
-        std::cout << "[Broker] Peer desconectado: " << peer_ip << ":" << peer_puerto << std::endl;
-        notificar_peers("PEER_LEFT", peer_ip, peer_puerto);
+        std::cout << "[Broker] Peer desconectado: " << peer_key << std::endl;
+        // Notificar a todos los demás con la nueva lista
+        broadcast_peers_list();
     }
     close(peer_fd);
 }

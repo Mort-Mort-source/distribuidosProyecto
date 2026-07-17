@@ -5,7 +5,6 @@
 #include <thread>
 #include <mutex>
 #include <map>
-#include <set>
 #include <vector>
 #include <fstream>
 #include <filesystem>
@@ -13,22 +12,20 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <netdb.h>
 #include <chrono>
 
 #define BROKER_PORT 65440
-#define LOCAL_PORT 65442        // Puerto para comunicación con frontend
+#define LOCAL_PORT 65442
 #define BUFFER_SIZE 8192
 
 namespace fs = std::filesystem;
 
-// ------------------- Estructuras -------------------
 struct Peer {
     std::string ip;
     int puerto;
 };
 
-std::map<std::string, Peer> lista_peers;  // key: "ip:puerto"
+std::map<std::string, Peer> lista_peers;
 std::mutex mutex_peers;
 
 int broker_fd = -1;
@@ -53,35 +50,17 @@ void procesar_mensaje_broker(const std::string& msg) {
     if (comando == "PEERS_LIST") {
         std::lock_guard<std::mutex> lock(mutex_peers);
         lista_peers.clear();
-        std::string ip;
-        int puerto;
-        while (iss >> ip >> puerto) {
-            std::string key = ip + ":" + std::to_string(puerto);
-            lista_peers[key] = {ip, puerto};
+        std::string peer_entry;
+        while (iss >> peer_entry) {
+            size_t colon = peer_entry.find(':');
+            if (colon != std::string::npos) {
+                std::string ip = peer_entry.substr(0, colon);
+                int puerto = std::stoi(peer_entry.substr(colon + 1));
+                std::string key = ip + ":" + std::to_string(puerto);
+                lista_peers[key] = {ip, puerto};
+            }
         }
         std::cout << "[Peer] Lista de peers actualizada: " << lista_peers.size() << " peers" << std::endl;
-    }
-    else if (comando == "PEER_JOINED") {
-        std::string ip;
-        int puerto;
-        iss >> ip >> puerto;
-        std::string key = ip + ":" + std::to_string(puerto);
-        {
-            std::lock_guard<std::mutex> lock(mutex_peers);
-            lista_peers[key] = {ip, puerto};
-        }
-        std::cout << "[Peer] Nuevo peer: " << ip << ":" << puerto << std::endl;
-    }
-    else if (comando == "PEER_LEFT") {
-        std::string ip;
-        int puerto;
-        iss >> ip >> puerto;
-        std::string key = ip + ":" + std::to_string(puerto);
-        {
-            std::lock_guard<std::mutex> lock(mutex_peers);
-            lista_peers.erase(key);
-        }
-        std::cout << "[Peer] Peer desconectado: " << ip << ":" << puerto << std::endl;
     }
 }
 
@@ -122,11 +101,9 @@ bool conectar_broker(const std::string& broker_ip) {
         return false;
     }
 
-    // Enviar registro
     std::string reg = "REGISTER " + mi_ip + " " + std::to_string(mi_puerto_p2p) + "\n";
     send(broker_fd, reg.c_str(), reg.size(), 0);
 
-    // Iniciar hilo para escuchar broker
     std::thread(escuchar_broker).detach();
     return true;
 }
@@ -216,10 +193,6 @@ void iniciar_servidor_p2p() {
 }
 
 // ------------------- Funciones para el frontend (Python) -------------------
-void enviar_al_frontend(int frontend_fd, const std::string& msg) {
-    send(frontend_fd, (msg + "\n").c_str(), msg.size() + 1, 0);
-}
-
 void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
     std::istringstream iss(cmd);
     std::string comando;
@@ -227,7 +200,6 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
 
     if (comando == "GET_PEERS") {
         std::lock_guard<std::mutex> lock(mutex_peers);
-        // Enviar lista en UNA sola línea con formato: PEERS_LIST ip1:puerto1 ip2:puerto2 ...
         std::string respuesta = "PEERS_LIST";
         for (const auto& par : lista_peers) {
             respuesta += " " + par.second.ip + ":" + std::to_string(par.second.puerto);
@@ -239,7 +211,6 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
         std::string ip;
         int puerto;
         iss >> ip >> puerto;
-        // Conectar al peer y pedir lista
         int sock = socket(AF_INET, SOCK_STREAM, 0);
         struct sockaddr_in addr;
         addr.sin_family = AF_INET;
@@ -266,7 +237,6 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
         std::string ip, filename;
         int puerto;
         iss >> ip >> puerto >> filename;
-        // Conectar al peer y descargar
         int sock = socket(AF_INET, SOCK_STREAM, 0);
         struct sockaddr_in addr;
         addr.sin_family = AF_INET;
@@ -278,7 +248,6 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
         }
         std::string cmd_download = "DOWNLOAD " + filename + "\n";
         send(sock, cmd_download.c_str(), cmd_download.size(), 0);
-        // Recibir SIZE
         char buffer[BUFFER_SIZE];
         memset(buffer, 0, BUFFER_SIZE);
         int bytes = recv(sock, buffer, BUFFER_SIZE - 1, 0);
@@ -296,7 +265,6 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
         size_t total_size = std::stoull(respuesta.substr(5));
         send(frontend_fd, ("SIZE " + std::to_string(total_size) + "\n").c_str(), 0, 0);
 
-        // Crear archivo
         fs::create_directory("descargas");
         std::string path = "descargas/" + filename;
         std::ofstream outfile(path, std::ios::binary);
@@ -362,7 +330,6 @@ void iniciar_servidor_local() {
     }
 }
 
-// ------------------- Main -------------------
 int main(int argc, char* argv[]) {
     if (argc < 4) {
         std::cerr << "Uso: " << argv[0] << " <broker_ip> <mi_ip> <puerto_p2p> [directorio_videos]" << std::endl;
@@ -376,7 +343,6 @@ int main(int argc, char* argv[]) {
         directorio_videos = argv[4];
     }
 
-    // Crear directorio de videos si no existe
     fs::create_directory(directorio_videos);
 
     std::cout << "╔════════════════════════════════════════════════════════╗" << std::endl;
@@ -384,19 +350,14 @@ int main(int argc, char* argv[]) {
     std::cout << "║     IP: " << mi_ip << "  P2P Puerto: " << mi_puerto_p2p << "                        ║" << std::endl;
     std::cout << "╚════════════════════════════════════════════════════════╝" << std::endl;
 
-    // Conectar al broker
     if (!conectar_broker(broker_ip)) {
         std::cerr << "Error: No se pudo conectar al broker" << std::endl;
         return 1;
     }
 
-    // Iniciar servidor P2P en un hilo
     std::thread p2p_thread(iniciar_servidor_p2p);
-
-    // Iniciar servidor local para frontend
     std::thread local_thread(iniciar_servidor_local);
 
-    // Mantener el programa corriendo
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
