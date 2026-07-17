@@ -3,6 +3,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 import os
+import sys
 
 PEER_HOST = "127.0.0.1"
 PEER_PORT = 65442
@@ -23,7 +24,6 @@ class PeerFrontend:
         self.files_list = []  # archivos del peer seleccionado
 
         self.progress_var = tk.IntVar()
-        self.downloading = False
 
         self.create_widgets()
         self.connect_to_peer()
@@ -83,6 +83,7 @@ class PeerFrontend:
         except Exception as e:
             self.status_label.config(text=f"Error: {e}", fg="red")
             messagebox.showerror("Error", f"No se pudo conectar al peer backend:\n{e}")
+            sys.exit(1)
 
     def receive_messages(self):
         while True:
@@ -90,6 +91,7 @@ class PeerFrontend:
                 data = self.socket.recv(4096).decode()
                 if not data:
                     break
+                print(f"[DEBUG] Recibido: {data!r}")  # ← LÍNEA DE DEPURACIÓN
                 with self.lock:
                     self.buffer += data
                     while "\n" in self.buffer:
@@ -104,79 +106,110 @@ class PeerFrontend:
         if not msg:
             return
 
+        print(f"[DEBUG] Procesando: {msg}")  # ← LÍNEA DE DEPURACIÓN
+
+        # Manejo de mensajes de descarga
         if msg.startswith("SIZE "):
             size = int(msg.split()[1])
             self.downloading = True
             self.progress_var.set(0)
             self.progress_label.config(text=f"Iniciando descarga ({size} bytes)...")
             self.download_btn.config(state="disabled")
+            return
 
         elif msg.startswith("PROGRESS "):
             percent = int(msg.split()[1])
             self.progress_var.set(percent)
             self.progress_label.config(text=f"Descargando... {percent}%")
+            return
 
         elif msg.startswith("DOWNLOAD_COMPLETE"):
             self.downloading = False
             self.download_btn.config(state="normal")
             self.progress_label.config(text="¡Descarga completada!")
             messagebox.showinfo("Éxito", "Archivo descargado en carpeta descargas/")
+            return
 
         elif msg.startswith("ERROR"):
             self.downloading = False
             self.download_btn.config(state="normal")
             self.progress_label.config(text="Error")
             messagebox.showerror("Error", msg)
+            return
 
-        elif msg.startswith("PEERS_LIST"):
+        # ========== MANEJO DE LISTA DE PEERS ==========
+        if msg.startswith("PEERS_LIST"):
+            # Limpiar listbox y diccionario
             self.peer_listbox.delete(0, tk.END)
             self.peers_list.clear()
-            lines = msg.splitlines()[1:]  # saltar la primera línea
-            for line in lines:
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) == 2:
-                        ip, puerto = parts[0], parts[1]
-                        key = f"{ip}:{puerto}"
-                        self.peers_list[key] = {"ip": ip, "puerto": int(puerto)}
-                        self.peer_listbox.insert(tk.END, key)
 
+            # Obtener la lista de peers (después de "PEERS_LIST")
+            parts = msg.split()[1:]  # omitir "PEERS_LIST"
+            if not parts:
+                self.peer_listbox.insert(tk.END, "No hay peers conectados")
+                self.status_label.config(text="No hay peers disponibles", fg="orange")
+                return
+
+            # Insertar cada peer en el listbox
+            for part in parts:
+                if ':' in part:
+                    ip, puerto = part.split(':')
+                    key = f"{ip}:{puerto}"
+                    self.peers_list[key] = {"ip": ip, "puerto": int(puerto)}
+                    self.peer_listbox.insert(tk.END, key)
+
+            self.status_label.config(text=f"Peers actualizados: {len(self.peers_list)} conectados", fg="blue")
+            return
+
+        # ========== LISTA DE ARCHIVOS (de un peer) ==========
         else:
-            # Asumimos que es lista de archivos
-            if not self.downloading:
-                self.files_listbox.delete(0, tk.END)
-                self.files_list.clear()
-                for line in msg.splitlines():
-                    if line.strip():
-                        self.files_listbox.insert(tk.END, line)
-                        self.files_list.append(line)
+            # Si estamos descargando, no procesamos archivos
+            if self.downloading:
+                return
+
+            # Limpiar listbox de archivos
+            self.files_listbox.delete(0, tk.END)
+            self.files_list.clear()
+
+            # Insertar cada línea como un archivo
+            for line in msg.splitlines():
+                if line.strip():
+                    self.files_listbox.insert(tk.END, line)
+                    self.files_list.append(line)
 
     def send_command(self, cmd):
         try:
             self.socket.sendall((cmd + "\n").encode())
+            print(f"[DEBUG] Enviado: {cmd}")
         except Exception as e:
             messagebox.showerror("Error", f"Perdida conexión con peer: {e}")
 
     def refresh_peers(self):
+        """Solicitar lista de peers al backend"""
         self.send_command("GET_PEERS")
 
     def on_peer_select(self, event):
+        """Cuando se selecciona un peer, limpiar lista de archivos"""
         selection = self.peer_listbox.curselection()
         if selection:
-            key = self.peer_listbox.get(selection[0])
             self.files_listbox.delete(0, tk.END)
             self.files_list.clear()
 
     def list_files(self):
+        """Listar archivos del peer seleccionado"""
         selection = self.peer_listbox.curselection()
         if not selection:
             messagebox.showwarning("Aviso", "Seleccione un peer primero")
             return
         key = self.peer_listbox.get(selection[0])
+        if key not in self.peers_list:
+            messagebox.showerror("Error", "Peer no encontrado")
+            return
         peer = self.peers_list[key]
         self.send_command(f"LIST_FROM_PEER {peer['ip']} {peer['puerto']}")
 
     def download_file(self):
+        """Descargar archivo del peer seleccionado"""
         selection = self.peer_listbox.curselection()
         if not selection:
             messagebox.showwarning("Aviso", "Seleccione un peer primero")
@@ -194,6 +227,9 @@ class PeerFrontend:
                 return
 
         key = self.peer_listbox.get(selection[0])
+        if key not in self.peers_list:
+            messagebox.showerror("Error", "Peer no encontrado")
+            return
         peer = self.peers_list[key]
         self.send_command(f"DOWNLOAD_FROM_PEER {peer['ip']} {peer['puerto']} {filename}")
 
