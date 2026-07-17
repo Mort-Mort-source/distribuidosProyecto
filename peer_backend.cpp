@@ -23,6 +23,7 @@ namespace fs = std::filesystem;
 struct Peer {
     std::string ip;
     int puerto;
+    std::string estado;  // "IDLE", "UPLOADING", "DOWNLOADING"
 };
 
 std::map<std::string, Peer> lista_peers;
@@ -31,9 +32,22 @@ std::mutex mutex_peers;
 int broker_fd = -1;
 int p2p_server_fd = -1;
 int local_server_fd = -1;
+int frontend_fd = -1;  // socket del frontend actual (solo uno)
 std::string mi_ip;
 int mi_puerto_p2p;
 std::string directorio_videos = "videos/";
+
+// ------------------- Enviar al frontend -------------------
+void enviar_frontend(const std::string& msg) {
+    if (frontend_fd != -1) {
+        send(frontend_fd, (msg + "\n").c_str(), msg.size() + 1, 0);
+    }
+}
+
+// ------------------- Notificar estado de un peer -------------------
+void notificar_estado(const std::string& key, const std::string& estado) {
+    enviar_frontend("PEER_STATUS " + key + " " + estado);
+}
 
 // ------------------- Comunicación con Broker -------------------
 void enviar_a_broker(const std::string& cmd) {
@@ -57,10 +71,18 @@ void procesar_mensaje_broker(const std::string& msg) {
                 std::string ip = peer_entry.substr(0, colon);
                 int puerto = std::stoi(peer_entry.substr(colon + 1));
                 std::string key = ip + ":" + std::to_string(puerto);
-                lista_peers[key] = {ip, puerto};
+                if (ip != mi_ip || puerto != mi_puerto_p2p) {  // no incluirse a sí mismo
+                    lista_peers[key] = {ip, puerto, "IDLE"};
+                }
             }
         }
         std::cout << "[Peer] Lista de peers actualizada: " << lista_peers.size() << " peers" << std::endl;
+        // Notificar al frontend la lista actualizada
+        std::string lista = "PEERS_LIST";
+        for (const auto& par : lista_peers) {
+            lista += " " + par.second.ip + ":" + std::to_string(par.second.puerto);
+        }
+        enviar_frontend(lista);
     }
 }
 
@@ -120,11 +142,15 @@ std::string obtener_lista_archivos() {
     return lista;
 }
 
-void manejar_descarga(int client_fd, const std::string& filename) {
+void manejar_descarga(int client_fd, const std::string& filename, const std::string& peer_key) {
+    // Notificar que este peer está subiendo
+    notificar_estado(peer_key, "UPLOADING");
+    
     std::string path = directorio_videos + "/" + filename;
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         send(client_fd, "ERROR: Archivo no encontrado\n", 30, 0);
+        notificar_estado(peer_key, "IDLE");
         return;
     }
 
@@ -135,18 +161,36 @@ void manejar_descarga(int client_fd, const std::string& filename) {
     send(client_fd, sizeMsg.c_str(), sizeMsg.size(), 0);
 
     char buffer[BUFFER_SIZE];
+    size_t enviados = 0;
+    int last_progress = -1;
     while (!file.eof()) {
         file.read(buffer, BUFFER_SIZE);
         std::streamsize bytesRead = file.gcount();
         if (bytesRead > 0) {
             send(client_fd, buffer, bytesRead, 0);
+            enviados += bytesRead;
+            int progress = (int)((enviados * 100) / size);
+            if (progress != last_progress && progress % 10 == 0) {
+                std::cout << "[Peer P2P] Subiendo " << filename << ": " << progress << "%" << std::endl;
+                last_progress = progress;
+            }
         }
     }
     file.close();
     std::cout << "[Peer P2P] Enviado: " << filename << " (" << size << " bytes)" << std::endl;
+    
+    // Volver a IDLE
+    notificar_estado(peer_key, "IDLE");
 }
 
 void atender_peer_p2p(int client_fd) {
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
+    std::string peer_ip = inet_ntoa(addr.sin_addr);
+    int peer_puerto = ntohs(addr.sin_port);
+    std::string peer_key = peer_ip + ":" + std::to_string(peer_puerto);
+    
     char buffer[BUFFER_SIZE];
     while (true) {
         memset(buffer, 0, BUFFER_SIZE);
@@ -160,7 +204,7 @@ void atender_peer_p2p(int client_fd) {
         } else if (cmd.rfind("DOWNLOAD ", 0) == 0) {
             std::string filename = cmd.substr(9);
             filename.erase(filename.find_last_not_of("\n\r") + 1);
-            manejar_descarga(client_fd, filename);
+            manejar_descarga(client_fd, filename, peer_key);
         } else {
             send(client_fd, "ERROR: Comando desconocido\n", 27, 0);
         }
@@ -193,7 +237,7 @@ void iniciar_servidor_p2p() {
 }
 
 // ------------------- Funciones para el frontend (Python) -------------------
-void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
+void manejar_comando_frontend(int fd, const std::string& cmd) {
     std::istringstream iss(cmd);
     std::string comando;
     iss >> comando;
@@ -204,8 +248,13 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
         for (const auto& par : lista_peers) {
             respuesta += " " + par.second.ip + ":" + std::to_string(par.second.puerto);
         }
-        respuesta += "\n";
-        send(frontend_fd, respuesta.c_str(), respuesta.size(), 0);
+        send(fd, (respuesta + "\n").c_str(), respuesta.size() + 1, 0);
+        // También enviar estados actuales
+        for (const auto& par : lista_peers) {
+            if (par.second.estado != "IDLE") {
+                send(fd, ("PEER_STATUS " + par.first + " " + par.second.estado + "\n").c_str(), 0, 0);
+            }
+        }
     }
     else if (comando == "LIST_FROM_PEER") {
         std::string ip;
@@ -217,7 +266,7 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
         addr.sin_port = htons(puerto);
         inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
         if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            send(frontend_fd, "ERROR: No se pudo conectar al peer\n", 35, 0);
+            send(fd, "ERROR: No se pudo conectar al peer\n", 35, 0);
             return;
         }
         send(sock, "LIST\n", 5, 0);
@@ -230,45 +279,55 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
             respuesta += buffer;
             if (respuesta.find('\n') != std::string::npos) break;
         }
-        send(frontend_fd, respuesta.c_str(), respuesta.size(), 0);
+        send(fd, (respuesta + "\n").c_str(), respuesta.size() + 1, 0);
         close(sock);
     }
     else if (comando == "DOWNLOAD_FROM_PEER") {
         std::string ip, filename;
         int puerto;
         iss >> ip >> puerto >> filename;
+        
+        // Notificar que este peer está descargando
+        std::string mi_key = mi_ip + ":" + std::to_string(mi_puerto_p2p);
+        notificar_estado(mi_key, "DOWNLOADING");
+        
         int sock = socket(AF_INET, SOCK_STREAM, 0);
         struct sockaddr_in addr;
         addr.sin_family = AF_INET;
         addr.sin_port = htons(puerto);
         inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
         if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            send(frontend_fd, "ERROR: No se pudo conectar al peer\n", 35, 0);
+            send(fd, "ERROR: No se pudo conectar al peer\n", 35, 0);
+            notificar_estado(mi_key, "IDLE");
             return;
         }
         std::string cmd_download = "DOWNLOAD " + filename + "\n";
         send(sock, cmd_download.c_str(), cmd_download.size(), 0);
+        
         char buffer[BUFFER_SIZE];
         memset(buffer, 0, BUFFER_SIZE);
         int bytes = recv(sock, buffer, BUFFER_SIZE - 1, 0);
         if (bytes <= 0) {
-            send(frontend_fd, "ERROR: No hay respuesta\n", 24, 0);
+            send(fd, "ERROR: No hay respuesta\n", 24, 0);
             close(sock);
+            notificar_estado(mi_key, "IDLE");
             return;
         }
         std::string respuesta(buffer);
         if (respuesta.rfind("SIZE ", 0) != 0) {
-            send(frontend_fd, respuesta.c_str(), respuesta.size(), 0);
+            send(fd, respuesta.c_str(), respuesta.size(), 0);
             close(sock);
+            notificar_estado(mi_key, "IDLE");
             return;
         }
         size_t total_size = std::stoull(respuesta.substr(5));
-        send(frontend_fd, ("SIZE " + std::to_string(total_size) + "\n").c_str(), 0, 0);
+        send(fd, ("SIZE " + std::to_string(total_size) + "\n").c_str(), 0, 0);
 
         fs::create_directory("descargas");
         std::string path = "descargas/" + filename;
         std::ofstream outfile(path, std::ios::binary);
         size_t recibidos = 0;
+        int last_progress = -1;
         while (recibidos < total_size) {
             memset(buffer, 0, BUFFER_SIZE);
             int chunk = recv(sock, buffer, BUFFER_SIZE, 0);
@@ -276,34 +335,39 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
             outfile.write(buffer, chunk);
             recibidos += chunk;
             int progress = (int)((recibidos * 100) / total_size);
-            if (progress % 10 == 0) {
-                send(frontend_fd, ("PROGRESS " + std::to_string(progress) + "\n").c_str(), 0, 0);
+            if (progress != last_progress && progress % 5 == 0) {
+                send(fd, ("PROGRESS " + std::to_string(progress) + "\n").c_str(), 0, 0);
+                std::cout << "[Peer] Descargando " << filename << ": " << progress << "%" << std::endl;
+                last_progress = progress;
             }
         }
         outfile.close();
         if (recibidos == total_size) {
-            send(frontend_fd, "DOWNLOAD_COMPLETE\n", 19, 0);
-            std::cout << "[Peer] Descarga completada: " << filename << std::endl;
+            send(fd, "DOWNLOAD_COMPLETE\n", 19, 0);
+            std::cout << "[Peer] ✅ Descarga completada: " << filename << std::endl;
         } else {
-            send(frontend_fd, "ERROR: Descarga incompleta\n", 27, 0);
+            send(fd, "ERROR: Descarga incompleta\n", 27, 0);
         }
         close(sock);
+        notificar_estado(mi_key, "IDLE");
     }
     else {
-        send(frontend_fd, "ERROR: Comando desconocido\n", 27, 0);
+        send(fd, "ERROR: Comando desconocido\n", 27, 0);
     }
 }
 
-void atender_frontend(int frontend_fd) {
+void atender_frontend(int fd) {
+    frontend_fd = fd;
     char buffer[BUFFER_SIZE];
     while (true) {
         memset(buffer, 0, BUFFER_SIZE);
-        int bytes = recv(frontend_fd, buffer, BUFFER_SIZE - 1, 0);
+        int bytes = recv(fd, buffer, BUFFER_SIZE - 1, 0);
         if (bytes <= 0) break;
         std::string cmd(buffer);
-        manejar_comando_frontend(frontend_fd, cmd);
+        manejar_comando_frontend(fd, cmd);
     }
-    close(frontend_fd);
+    frontend_fd = -1;
+    close(fd);
 }
 
 void iniciar_servidor_local() {
