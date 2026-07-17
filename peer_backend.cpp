@@ -17,8 +17,7 @@
 #include <chrono>
 
 #define BROKER_PORT 65440
-#define P2P_PORT 65441          // Puerto base, se puede especificar
-#define LOCAL_PORT 65442        // Para comunicación con frontend
+#define LOCAL_PORT 65442        // Puerto para comunicación con frontend
 #define BUFFER_SIZE 8192
 
 namespace fs = std::filesystem;
@@ -170,7 +169,7 @@ void manejar_descarga(int client_fd, const std::string& filename) {
     std::cout << "[Peer P2P] Enviado: " << filename << " (" << size << " bytes)" << std::endl;
 }
 
-void atener_peer_p2p(int client_fd) {
+void atender_peer_p2p(int client_fd) {
     char buffer[BUFFER_SIZE];
     while (true) {
         memset(buffer, 0, BUFFER_SIZE);
@@ -212,7 +211,7 @@ void iniciar_servidor_p2p() {
 
     while (true) {
         client_fd = accept(p2p_server_fd, (struct sockaddr*)&address, &addrlen);
-        std::thread(atener_peer_p2p, client_fd).detach();
+        std::thread(atender_peer_p2p, client_fd).detach();
     }
 }
 
@@ -228,10 +227,12 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
 
     if (comando == "GET_PEERS") {
         std::lock_guard<std::mutex> lock(mutex_peers);
-        std::string respuesta = "PEERS_LIST\n";
+        // Enviar lista en UNA sola línea con formato: PEERS_LIST ip1:puerto1 ip2:puerto2 ...
+        std::string respuesta = "PEERS_LIST";
         for (const auto& par : lista_peers) {
-            respuesta += par.second.ip + " " + std::to_string(par.second.puerto) + "\n";
+            respuesta += " " + par.second.ip + ":" + std::to_string(par.second.puerto);
         }
+        respuesta += "\n";
         send(frontend_fd, respuesta.c_str(), respuesta.size(), 0);
     }
     else if (comando == "LIST_FROM_PEER") {
@@ -275,8 +276,8 @@ void manejar_comando_frontend(int frontend_fd, const std::string& cmd) {
             send(frontend_fd, "ERROR: No se pudo conectar al peer\n", 35, 0);
             return;
         }
-        std::string cmd = "DOWNLOAD " + filename + "\n";
-        send(sock, cmd.c_str(), cmd.size(), 0);
+        std::string cmd_download = "DOWNLOAD " + filename + "\n";
+        send(sock, cmd_download.c_str(), cmd_download.size(), 0);
         // Recibir SIZE
         char buffer[BUFFER_SIZE];
         memset(buffer, 0, BUFFER_SIZE);

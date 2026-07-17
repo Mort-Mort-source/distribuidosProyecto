@@ -1,0 +1,54 @@
+# ============================================
+#  CARPETAS DE CONTENIDO MULTIMEDIA
+#  (Ignorar todo lo que esté dentro de videos/)
+# ============================================
+videos/
+# Si quieres mantener un archivo .gitkeep dentro de videos/ para que la carpeta exista,
+# usa la siguiente línea (descomenta):
+# !videos/.gitkeep
+
+# Opcional: ignorar también otras carpetas de contenido
+# audios/
+# pdfs/
+# descargas/
+
+# ============================================
+#  BINARIOS COMPILADOS (C++)
+# ============================================
+broker
+peer
+servidor
+proxy_backend
+backend
+cliente
+*.exe
+*.out
+
+# ============================================
+#  ARCHIVOS DE OBJETO Y TEMPORALES DE C++
+# ============================================
+*.o
+*.obj
+*.so
+*.a
+
+# ============================================
+#  ARCHIVOS DE PYTHON
+# ============================================
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+
+# ============================================
+#  EDITORES Y SISTEMA
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.log
