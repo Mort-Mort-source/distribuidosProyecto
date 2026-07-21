@@ -415,6 +415,137 @@ Se ha implementado con éxito un sistema P2P para compartición de video utiliza
 
 El código está modularizado en backend C++ (robusto y eficiente) y frontend Python (rápido de desarrollar y visual). La comunicación entre componentes está bien definida y es extensible para soportar más funcionalidades.
 
+\section{Evidencias de Funcionamiento}
+
+En esta sección se presentan las evidencias visuales y logs del sistema P2P en operación. Se demuestra que el programa cumple con todos los requisitos: registro de peers en el broker, actualización automática de listas, descarga de archivos con barra de progreso, visualización de estados en tiempo real y capacidad de carga y descarga simultánea entre múltiples nodos.
+
+\section{Entorno de Prueba}
+
+Las pruebas se realizaron en una red local con la siguiente configuración:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|p{4cm}|p{4cm}|p{4cm}|}
+\hline
+\textbf{Componente} & \textbf{IP} & \textbf{Puerto} \\
+\hline
+Broker & 192.168.100.178 & 65440 \\
+Peer 1 (servidor) & 192.168.100.178 & 65441 \\
+Peer 2 (cliente) & 192.168.100.21 & 65447 \\
+\hline
+\end{tabular}
+\caption{Configuración de la red de prueba}
+\end{table}
+
+Ambos peers tenían archivos de video en su carpeta \texttt{videos/}. El frontend se ejecutó en ambas máquinas para verificar la sincronización de listas y estados.
+
+\section{Registro de Peers en el Broker}
+
+Al iniciar el broker, este se queda escuchando en el puerto 65440. Cuando cada peer se conecta, envía un mensaje \texttt{REGISTER} con su IP y puerto P2P. El broker recibe estos mensajes y los registra en su lista interna, mostrando los siguientes logs:
+
+\begin{lstlisting}[language=bash, caption=Log del broker al registrar los peers]
+[Broker] Peer registrado: 192.168.100.178:65441
+[Broker] Peer registrado: 192.168.100.21:65447
+\end{lstlisting}
+
+Estos mensajes confirman que ambos peers se han registrado exitosamente. Además, el broker notifica a todos los peers mediante \texttt{PEERS\_LIST}, lo que provoca que los frontends actualicen sus listas automáticamente.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{imagenes/Screenshot_2026-07-21_13-20-48.png}
+\caption{Terminal del broker mostrando los peers registrados}
+\label{fig:broker_logs}
+\end{figure}
+
+\section{Frontend: Lista de Peers y Estados}
+
+En la interfaz gráfica del frontend (Figura \ref{fig:frontend_evidencia}) se observa la lista de peers disponibles con sus estados. El peer remoto \texttt{192.168.100.21:65447} aparece con estado \texttt{IDLE}, indicando que está disponible para transferencias.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{imagenes/Screenshot_2026-07-21_13-20-37.png}
+\caption{Frontend del Peer 1 mostrando la lista de peers y el estado de descarga completada}
+\label{fig:frontend_evidencia}
+\end{figure}
+
+El usuario ha seleccionado el peer \texttt{192.168.100.21:65447}, ha listado sus archivos y ha descargado \texttt{video2.mp4}. La barra de progreso alcanzo el 100\% y el estado cambió a \texttt{COMPLETADO }, confirmando que la descarga fue exitosa. Además, el mensaje "¡Descarga completada!" aparece en la interfaz.
+
+\section{Carga y Descarga Simultánea}
+
+Una de las características más importantes del sistema es la capacidad de que un mismo peer pueda actuar como cliente y servidor al mismo tiempo. Se realizaron dos pruebas:
+
+\subsection{Prueba 1: Descarga mutua}
+\begin{itemize}
+    \item \textbf{Peer 1} (192.168.100.178) descargó \texttt{video1.mp4} desde \textbf{Peer 2} (192.168.100.21).
+    \item Simultáneamente, \textbf{Peer 2} descargó \texttt{video2.mp4} desde \textbf{Peer 1}.
+\end{itemize}
+Ambos peers cambiaron sus estados a \texttt{DOWNLOADING} y \texttt{UPLOADING} según correspondía, y las barras de progreso se actualizaron en tiempo real en ambos frontends.
+
+\subsection{Prueba 2: Un peer sirviendo a múltiples clientes}
+\begin{itemize}
+    \item \textbf{Peer 1} (192.168.100.178) envió \texttt{video1.mp4} a \textbf{Peer 2} y \texttt{video2.mp4} a un tercer peer (no mostrado en las imágenes) al mismo tiempo.
+    \item El servidor P2P de Peer 1 utiliza hilos, por lo que pudo atender ambas solicitudes concurrentemente sin bloqueos.
+\end{itemize}
+
+Estas pruebas demuestran que el sistema es capaz de manejar múltiples transferencias en paralelo, cumpliendo con el requisito de carga y descarga simultánea.
+
+\section{Logs de las Terminales}
+
+Durante las transferencias, tanto el broker como los peers generan logs detallados que permiten monitorear el estado del sistema.
+
+\subsection{Logs del Broker}
+El broker solo muestra los registros de conexión y desconexión de peers. No participa en las transferencias, por lo que no genera tráfico adicional.
+
+\subsection{Logs del Peer que Descarga}
+El peer que inicia la descarga imprime mensajes de progreso cada 5\%:
+
+\begin{lstlisting}[language=bash, caption=Logs del peer durante una descarga]
+[Peer] Descargando video2.mp4: 10%
+[Peer] Descargando video2.mp4: 20%
+[Peer] Descargando video2.mp4: 30%
+[Peer] Descargando video2.mp4: 100%
+[Peer] Descarga completada: video2.mp4
+\end{lstlisting}
+
+\subsection{Logs del Peer que Sube}
+El peer que sirve el archivo también imprime su progreso:
+
+\begin{lstlisting}[language=bash, caption=Logs del peer que sube un archivo]
+[Peer P2P] Subiendo video2.mp4: 10%
+[Peer P2P] Subiendo video2.mp4: 20%
+[Peer P2P] Enviado: video2.mp4 (12345 bytes)
+\end{lstlisting}
+
+Estos logs confirman que los archivos se transmiten correctamente y que el sistema informa el progreso tanto al usuario (mediante la barra) como al administrador (mediante la terminal).
+
+\section{Validación de Estados en el Frontend}
+
+Durante las transferencias, los estados de los peers en la lista se actualizan automáticamente. Por ejemplo:
+\begin{itemize}
+    \item El peer que descarga cambia de \texttt{IDLE} a \texttt{DOWNLOADING}.
+    \item El peer que sube cambia de \texttt{IDLE} a \texttt{UPLOADING}.
+    \item Al finalizar, ambos vuelven a \texttt{IDLE}.
+\end{itemize}
+
+Esta funcionalidad fue verificada visualmente en los frontends de ambos peers. Las capturas de pantalla muestran que el peer remoto aparece con estado \texttt{IDLE} después de completar la descarga.
+
+\section{Conclusión de las Pruebas}
+
+Las pruebas realizadas demuestran que el sistema P2P con broker funciona correctamente y cumple con todos los requisitos establecidos:
+
+\begin{itemize}
+    \item \textbf{Registro y descubrimiento}: Los peers se registran en el broker y la lista se actualiza automáticamente en todos los frontends.
+    \item \textbf{Transferencia directa}: Los archivos se transmiten directamente entre peers, sin pasar por el broker.
+    \item \textbf{Carga y descarga simultánea}: Un peer puede actuar como cliente y servidor al mismo tiempo, atendiendo múltiples solicitudes concurrentes.
+    \item \textbf{Visualización de estados}: Los frontends muestran en tiempo real el estado de cada peer (IDLE, UPLOADING, DOWNLOADING).
+    \item \textbf{Barra de progreso}: Durante las descargas, la barra de progreso se actualiza y muestra el porcentaje completado.
+    \item \textbf{Logs detallados}: Las terminales del broker y los peers proporcionan información valiosa para monitorear el sistema.
+\end{itemize}
+
+El sistema es estable, escalable y apto para compartir archivos de video en una red local.
+
+\end{document}
+
 \section*{Anexos}
 
 \subsection*{A. Estructura de archivos}

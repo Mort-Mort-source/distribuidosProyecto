@@ -1,7 +1,7 @@
 # Fdb version 4
-["pdflatex"] 1784258445.15875 "/home/mort/Escritorio/distribuidosProyecto/documentacion/reporte.tex" "reporte.pdf" "reporte" 1784258445.7781 0
+["pdflatex"] 1784661932.4063 "/home/mort/Escritorio/distribuidosProyecto/documentacion/reporte.tex" "reporte.pdf" "reporte" 1784661933.30018 0
   "/etc/texmf/web2c/texmf.cnf" 1779767773.16605 475 c0e671620eb5563b2130f56340a5fde8 ""
-  "/home/mort/Escritorio/distribuidosProyecto/documentacion/reporte.tex" 1784258444.27391 19808 0f442d867b1c8827bedc0ce61d146037 ""
+  "/home/mort/Escritorio/distribuidosProyecto/documentacion/reporte.tex" 1784661931.30672 26853 25f627ccc772e15f6d321bd8c31ab2fd ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex7.tfm" 1246382020 1004 54797486969f23fa377b128694d548df ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex8.tfm" 1246382020 988 bdf658c3bfc2d96d3c8b02cfc1c94c20 ""
@@ -28,6 +28,7 @@
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb" 1248133631 35752 024fb6c41858982481f6968b5fc26508 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb" 1248133631 32722 d7379af29a190c3f453aba36302ff5a9 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb" 1248133631 32734 69e00a6b65cedb993666e42eedb3d48f ""
+  "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb" 1248133631 32726 0a1aea6fcd6468ee2cf64d891f5c43c8 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb" 1248133631 31099 c85edf1dd5b9e826d67c9c7293b6786c ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pfb" 1248133631 24252 1e4e051947e12dfb50fee0b7f4e26e3a ""
   "/usr/share/texlive/texmf-dist/tex/context/base/mkii/supp-pdf.mkii" 1461363279 71627 94eb9990bed73c364d7f53f960cc8c5b ""
@@ -97,13 +98,15 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1779767785.14574 5472669 54eaf61a88b6b7896ebd0dac973cb29c ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1779767847 8213856 c3ffe4c0207d7b97d0cecdeb75e921f3 ""
+  "imagenes/Screenshot_2026-07-21_13-20-37.png" 1784661637.61545 60782 7cfb67f11c7524730f0d3928cade1b54 ""
+  "imagenes/Screenshot_2026-07-21_13-20-48.png" 1784661648.37257 754526 d853f8e7293f113e99d6195776e641b7 ""
   "imagenes/diagrama_arquitectura.png" 1784257798.57221 119087 8cb85e95820c26f36b6cd4c819b4e614 ""
   "imagenes/diagrama_secuencia_descarga.png" 1784257973.05103 39482 fc5c1313f66ed35a6d3a87ad6f194344 ""
   "imagenes/uam_logo.png" 1779767438.75039 13365 5f8ea36cc292a596208c545cbd2d1f6b ""
-  "reporte.aux" 1784258445.72237 7132 d2545e2dc8ebd50716d63b529d33ecac "pdflatex"
-  "reporte.out" 1784258445.72337 6749 1ab51d96f2b31873e405a198e9f627c4 "pdflatex"
-  "reporte.tex" 1784258444.27391 19808 0f442d867b1c8827bedc0ce61d146037 ""
-  "reporte.toc" 1784258445.72439 3193 082eae858bfc4a4f54b1b4521595ebee "pdflatex"
+  "reporte.aux" 1784661933.25191 9729 089dace59ff705f4d0d5f2be7078fec4 "pdflatex"
+  "reporte.out" 1784661933.25291 9335 a26bc8dc8f35da9169372e741eb65db0 "pdflatex"
+  "reporte.tex" 1784661931.30672 26853 25f627ccc772e15f6d321bd8c31ab2fd ""
+  "reporte.toc" 1784661933.25435 4368 307d4dd44e13cf10a7108c9ade8416f5 "pdflatex"
   (generated)
   "reporte.aux"
   "reporte.log"
