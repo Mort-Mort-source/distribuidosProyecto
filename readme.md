@@ -15,6 +15,16 @@ g++ -std=c++17 -pthread peer_backend.cpp -o peer
 ## Paso 3 ejecutar en terminal
 
 ``` shell
-./peer 192.168.1.10 192.168.1.10 65441 videos/
+./peer 172.18.53.240 172.18.53.240 65441 videos/
 ```
 donde la primera ip es la ip del broker y la segunda es la del peer.
+
+
+## Paso 4 levantar frontend
+
+
+levantar frontend con 
+```shell
+python3 peer_frontend.py
+```
+
